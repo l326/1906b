@@ -1,0 +1,81 @@
+商品搜索
+usian_search_service
+service
+1、查询名字、描述、卖点、类别包括“q”的商品
+			searchSourceBuilder.query(QueryBuilders.multiMatchQuery(q,new String[]{
+            "item_title","item_desc","item_sell_point","item_category_name"}));
+2、分页
+            /**
+             * 1  0  20--->(p-1)*pageSize
+             * 2  20 20--->(2-1)*20
+             * 3  40 20--->(3-1)*20
+             */
+            Long  from = (page - 1) * pageSize;
+            searchSourceBuilder.from(from.intValue());
+            searchSourceBuilder.size(pageSize);			
+3、高亮
+            HighlightBuilder highlightBuilder = new HighlightBuilder();
+            highlightBuilder.preTags("<font color='red'>");
+            highlightBuilder.postTags("</font>");
+            highlightBuilder.field("item_title");
+            searchSourceBuilder.highlighter(highlightBuilder);
+
+            searchRequest.source(searchSourceBuilder);
+            SearchResponse response = restHighLevelClient.search(
+                			searchRequest, RequestOptions.DEFAULT);
+            SearchHit[] hits = response.getHits().getHits();
+4、返回查询结果
+            List<SearchItem> searchItemList = new ArrayList<>();
+            for (int i=0; i<hits.length; i++){
+                SearchHit hit = hits[i];
+                SearchItem searchItem = JsonUtils.jsonToPojo(hit.getSourceAsString(),
+                                                             SearchItem.class);
+                Map<String, HighlightField> highlightFields = hit.getHighlightFields();
+                if(highlightFields!=null && highlightFields.size()>0) {
+      				searchItem.setItem_title(highlightFields.get("item_title").
+                               getFragments()[0].toString());
+                }
+                searchItemList.add(searchItem);
+
+
+索引库同步
+usian_search_service
+service
+	1.pom.xml
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
+	2.application.yml
+		spring:
+		  rabbitmq:
+			host: 192.168.233.132
+			username: admin
+			password: 1111
+			virtual-host: /
+	3.listerner
+			/**
+		 * 监听者接收消息三要素：
+		 *  1、queue
+		 *  2、exchange
+		 *  3、routing key
+		 */
+		@RabbitListener(bindings = @QueueBinding(
+			value = @Queue(value="search_queue",durable = "true"),
+			exchange = @Exchange(value="item_exchage",type= ExchangeTypes.TOPIC),
+			key= {"item.*"}
+		))
+		public void listen(String msg) throws Exception {
+			System.out.println("接收到消息：" + msg);
+			int result = searchItemService.insertDocument(msg);（自己到mapper写）
+			if(result>0){
+				throw new RuntimeException("同步失败");
+			}
+		}
+	4.修改usian_item_service 参考前两步	
+	
+	5.修改usian_item_service service
+		//添加商品发布消息到mq
+		amqpTemplate.convertAndSend("item_exchage","item.add", itemId);
+	
+			
