@@ -1,0 +1,79 @@
+									=============单点登录===============
+单点登录介绍
+	1、什么是单点登录？
+		SSO英文全称Single Sign On，单点登录，登录一次处处可用
+
+	2、思路
+		存(登录)：redis(token,user)       cookie(token_key,token)
+					
+		取(查询用户)：cookie(token)--------->redis(user)
+
+注册信息校验
+
+用户注册:
+	 /**
+     * 用户注册
+     */
+    @Override
+    public Integer userRegister(TbUser user) {
+        //将密码做加密处理。
+        String pwd = MD5Utils.digest(user.getPassword());
+        user.setPassword(pwd);
+        //补齐数据
+        user.setCreated(new Date());
+        user.setUpdated(new Date());
+        return this.tbUserMapper.insert(user);
+    }
+
+用户登录:
+		登录成功后生成token。Token相当于原来的jsessionid，字符串，可以使用uuid。
+        String token = UUID.randomUUID().toString();
+        把用户信息保存到redis。Key就是token，value就是TbUser对象转换成json。
+        tbUser.setPassword(null);
+        redisClient.set(USER_INFO + ":" + token, tbUser);
+        设置key的过期时间。模拟Session的过期时间。
+        redisClient.expire(USER_INFO + ":" + token, SESSION_EXPIRE);
+
+
+
+通过token查询用户信息:
+	1、从url中取参数token
+
+	2、根据token查询redis
+
+	3、如果查询不到数据，前台删除cookie中的用户信息
+
+	4、如果查询到数据，说明用户已经登录需要重置key的过期时间
+
+		/**
+		 * 查询用户登录是否过期
+		 * @param token
+		 * @return
+		 */
+		@Override
+		public TbUser getUserByToken(String token) {        
+			TbUser tbUser = (TbUser) redisClient.get(USER_INFO + ":" + token);
+			if(tbUser!=null){
+				//需要重置key的过期时间。
+				redisClient.expire(USER_INFO+":"+token,SESSION_EXPIRE);
+				return tbUser;
+			}
+			return null;
+		}
+		测试是否显示登录用户名
+
+
+退出登录:
+	/**
+     * 用户退出登录
+     * @param token
+     */
+    @Override
+    public Boolean logOut(String token) {
+       return redisClient.del(USER_INFO + ":" + token);
+    }
+	测试是否删除redis中的用户信息	
+
+	测试是否删除cookie中的用户信息
+	
+		
